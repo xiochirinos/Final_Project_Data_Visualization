@@ -1,0 +1,289 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+install.packages("DT")
+```
+
+
+```{r}
+library(tidyverse)
+library(forecast)
+library(caTools)
+library(earth)
+library(randomForest)
+library(kernlab)
+library(h2o)
+library(neuralnet)
+library(Metrics)
+library(caret)
+library(hms)
+library(lubridate)
+library(ggplot2)
+library(gganimate)
+library(gapminder)
+library(gifski)
+library(png)
+library(shiny)
+library(plotly)
+library(shinydashboard)
+library(DT)
+```
+
+
+# DATA
+```{r}
+Mall_customers <- read.csv("Mall_Customers.csv", stringsAsFactors = T)
+
+Mall_customers <- Mall_customers %>% rename(
+  Annual_Income = Annual.Income..k..,
+  Spending_Score = Spending.Score..1.100.)
+
+Mall_customers <- Mall_customers %>%
+  select(Genre, Age, Annual_Income, Spending_Score)
+
+Mall_customers <- Mall_customers %>% mutate(
+  Gender = if_else(Genre == "Male", true = 1, false = 0)
+) %>% 
+  select(-Genre)
+Mall_customers
+```
+
+
+```{r}
+summary(Mall_customers)
+```
+
+
+# DATA SPLIT
+```{r}
+set.seed(123)
+
+sample = sample.split(Mall_customers$Gender, SplitRatio = .75)
+train = subset(Mall_customers, sample == TRUE)
+test = subset(Mall_customers, sample == FALSE)
+```
+
+
+
+# RAMDOM FOREST
+```{r}
+# Random Forest Model
+RFModel <- randomForest(Gender ~ ., data = train, mtry = 3, ntree = 64)
+RFModel
+
+plot(RFModel)
+
+# Prediction
+RFPrediction <- predict(RFModel, test, type = "class")
+RFPrediction
+
+# Generate Confusion Matrix
+RFconfusionMatrix <- table(RFPrediction,
+                         test$Gender,
+                         dnn = c("Prediction", "Actual"))
+
+# Calculate Accuracy
+RFaccuracy <- round(sum(diag(RFconfusionMatrix))/ sum(RFconfusionMatrix), digits = 4)
+cat("Random Forest Accuracy:", RFaccuracy)
+```
+
+
+
+#SVM
+```{r}
+# Support Vector Machine Model
+SVMmodel <- ksvm(Gender ~ .,
+                 data = train,
+                 kernel = "vanilladot")
+SVMmodel
+
+
+# Prediction
+SVMpred <- predict(SVMmodel, test)
+
+# Generate Confusion Matrix
+SVMconfusionMatrix <- table(SVMpred,
+                         test$Gender,
+                         dnn = c("Prediction", "Actual"))
+
+# Calculate Accuracy
+SVMaccuracy <- round(sum(diag(SVMconfusionMatrix))/ sum(SVMconfusionMatrix), digits = 4)
+cat("Support Vector Machine Accuracy:", SVMaccuracy)
+```
+
+
+# NEURAL NETWORKS
+```{r}
+# Neural Networks Model
+NNModel <- neuralnet(Gender ~ .,
+                     data = train)
+NNModel
+
+# Visualization
+NNModelPlot <- plot(NNModel)
+NNModelPlot
+
+# Prediction
+NNPrediction <- predict(NNModel, test)
+
+# Generate Confusion Matrix
+NNconfusionMatrix <- table(NNPrediction,
+                         test$Gender,
+                         dnn = c("Prediction", "Actual"))
+
+# Calculate Accuracy
+NNaccuracy <- round(sum(diag(NNconfusionMatrix))/ sum(NNconfusionMatrix), digits = 4)
+cat("Neural Network Model Accuracy:", NNaccuracy)
+```
+
+
+# DEEP LEARNING NEURAL NETWORKS
+```{r}
+# Neural Networks Model
+DNNModel <- neuralnet(Gender ~ .,
+                     data = train,
+                     hidden = 4)
+DNNModel
+
+# Visualization
+plot(DNNModel)
+
+# Prediction
+DNNPrediction <- predict(DNNModel, test)
+
+# Generate Confusion Matrix
+DNNconfusionMatrix <- table(DNNPrediction,
+                         test$Gender,
+                         dnn = c("Prediction", "Actual"))
+
+# Calculate Accuracy
+DNNaccuracy <- round(sum(diag(DNNconfusionMatrix))/ sum(DNNconfusionMatrix), digits = 4)
+cat("Deep Neural Network Model Accuracy:", DNNaccuracy)
+```
+
+
+
+
+# AUTO ML
+```{r}
+localH2O = h2o.init()
+
+# Convert the data frame to an H2O Data Frame
+autoMall_customers <- as.h2o(Mall_customers)
+
+# Sample Data
+autoSplit <- h2o.splitFrame(data = autoMall_customers, ratios = c(.75))
+AMLtrain <- autoSplit[[1]]
+AMLtestValidation <- autoSplit[[2]]
+
+testValidationSplit <- h2o.splitFrame(data = AMLtestValidation, ratios = c(.75))
+AMLtest <- testValidationSplit[[1]]
+AMLvalidation <- testValidationSplit[[2]]
+
+# AutoML
+autoMLModel <- h2o.automl(y = "Gender",
+                    x = c("Age", "Annual_Income", "Spending_Score"),
+                    training_frame = AMLtrain,
+                    validation_frame = AMLvalidation,
+                    balance_classes = TRUE,
+                    max_runtime_secs = 60,
+                    seed = 1234)
+
+# Prediction
+AMLprediction = h2o.predict(object = autoMLModel, newdata = AMLtest)
+
+AutoMLtable <- as.data.frame(h2o.get_leaderboard(object = autoMLModel, extra_columns = 'ALL'))
+AutoMLtable
+
+# Performance
+print(h2o.performance(autoMLModel@leader, AMLtest))
+```
+
+
+# PLOTS
+
+```{r}
+Mall_customers_Plot1 <- read.csv("Mall_Customers.csv")
+
+Mall_customers_Plot1 <- Mall_customers_Plot1 %>% rename(
+  Annual_Income = Annual.Income..k..,
+  Spending_Score = Spending.Score..1.100.,
+  Gender = Genre)
+
+Mall_customers_Plot1 <- Mall_customers_Plot1 %>%
+  select(Gender, Age, Annual_Income, Spending_Score)
+
+Mall_customers_Plot1$Gender <- as.factor(Mall_customers_Plot1$Gender)
+
+Mall_customers_Plot1
+
+```
+
+
+
+# ANIMATED PLOT
+```{r}
+AnnualIncome_SpendingScore <- ggplot(Mall_customers_Plot, aes(x = Annual_Income, y = Spending_Score, color = Gender)) +
+                                geom_line(alpha = 0.7) +
+                                theme_minimal() +
+                                theme(legend.position="none") +
+                                theme(axis.text.x = element_text(face = "bold", size = 10)) +
+                                theme(axis.text.y = element_text(face = "bold", size = 10)) +
+                                theme(axis.title.x = element_text(size = 15, face = "bold"),
+                                      axis.title.y = element_text(size = 15, face = "bold")) +
+                                labs(title = "Annual Income vs. Spending Score",
+                                    x = 'Annual Income',
+                                     y = 'Spending Score') +
+                                transition_reveal(Annual_Income)
+                                
+AnnualIncome_SpendingScore                                
+```
+
+
+# PLOTLY PLOTS
+```{r}
+Age_SpendingScore <- ggplot(Mall_customers_Plot, aes(x = Age, y = Spending_Score, fill = Gender)) +
+                          geom_bar(alpha = 0.7, stat = "identity", position = "dodge") +
+                          theme_minimal() +
+                          theme(legend.position="none") +
+                          theme(axis.text.x = element_text(face = "bold", size = 10, angle = 90)) +
+                          theme(axis.text.y = element_text(face = "bold", size = 10)) +
+                          theme(axis.title.x = element_text(size = 15, face = "bold"),
+                                axis.title.y = element_text(size = 15, face = "bold")) +
+                          labs(x = 'Age',
+                               y = 'Spending Score')
+
+ggplotly(Age_SpendingScore)
+```
+
+
+
+```{r}
+Age_AnnualIncome <- ggplot(Mall_customers_Plot1, aes(x = Age, y = Annual_Income, fill = Gender)) +
+                          geom_bar(alpha = 0.7, stat = "identity", position = "dodge") +
+                          theme_minimal() +
+                          theme(legend.position="none") +
+                          theme(axis.text.x = element_text(face = "bold", size = 10, angle = 90)) +
+                          theme(axis.text.y = element_text(face = "bold", size = 10)) +
+                          theme(axis.title.x = element_text(size = 15, face = "bold"),
+                                axis.title.y = element_text(size = 15, face = "bold")) +
+                          labs(x = 'Age',
+                               y = 'Annual Income')
+
+ggplotly(Age_AnnualIncome)
+```
+
+
+```{r}
+rsconnect::setAccountInfo(name='xiochirinos',
+			  token='0F58DAD4CDCAC9786C37995CD1527BE4',
+			  secret='mwRCIHucKohwJ5R6Q5RLUAQkYNL0bX1LtiHn4boh')
+```
+
+```{r}
+library(rsconnect)
+rsconnect::deployApp('~/Desktop/MS_BIG_DATA/DATA VISUALIZATION/Final Project/Final_Project')
+```
